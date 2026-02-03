@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WaterTap</title>
+  
+  <meta name="theme-color" content="#2196f3">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="WaterTap">
+  <link rel="apple-touch-icon" href="icon.png">
+  
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* ... (نفس التنسيقات الخاصة بك دون تغيير) ... */
+    body{font-family:sans-serif;background:#f5f5f5;margin:0;text-align:center}
+    h1{background:#2196f3;color:#fff;margin:0;padding:16px}
+    .card{max-width:420px;margin:20px auto;background:#fff;padding:18px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+    button{width:100%;padding:14px;border-radius:10px;border:none;background:#2196f3;color:#fff;font-size:16px;cursor:pointer}
+    button:hover{background:#1976d2}
+    .row{display:flex;gap:10px;margin-top:12px}
+    .row button{width:50%}
+    input[type=number]{width:90px;padding:8px;text-align:center;border-radius:6px;border:1px solid #ddd}
+    .block{margin-top:18px;padding-top:12px;border-top:1px solid #eee}
+    .per{font-weight:700}
+    .history{margin-top:12px;text-align:left;font-size:13px;color:#444;background:#fafafa;padding:8px;border-radius:8px;border:1px solid #eee;max-height:90px;overflow:auto}
+    .note{margin-top:10px;color:#666;font-size:13px}
+    button:disabled{opacity:.5;cursor:default}
+  </style>
+</head>
+<body>
+  <h1>WaterTap</h1>
+  <div class="card">
+    <h2 id="dailyTotal">0 ml</h2>
+    <div>
+      <p>Per tap: <span id="perTap1" class="per">180</span> ml</p>
+      <button id="addBtn1">Add 180 ml</button>
+      <div style="margin-top:8px;">
+        <label>Set per tap (ml): <input type="number" id="mlInput1" min="1" value="180"></label>
+      </div>
+      <button id="saveMl1" style="margin-top:8px">Save</button>
+    </div>
+    <div class="block">
+      <p>Per tap: <span id="perTap2" class="per">180</span> ml</p>
+      <button id="addBtn2">Add 180 ml</button>
+      <div style="margin-top:8px;">
+        <label>Set per tap (ml): <input type="number" id="mlInput2" min="1" value="180"></label>
+      </div>
+      <button id="saveMl2" style="margin-top:8px">Save</button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="undoBtn" disabled>Undo last</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+    <div class="history" id="historyView">Recent: —</div>
+    <p class="note">Data stored locally. No ads. No subscriptions.</p>
+  </div>
+
+  <script>
+    // تسجيل الـ Service Worker للعمل كـ PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js');
+      });
+    }
+
+    // ... (نفس كود الـ JavaScript الخاص بك دون تغيير) ...
+    const totalEl = document.getElementById('dailyTotal');
+    const perTap1El = document.getElementById('perTap1');
+    const perTap2El = document.getElementById('perTap2');
+    const mlInput1 = document.getElementById('mlInput1');
+    const mlInput2 = document.getElementById('mlInput2');
+    const addBtn1 = document.getElementById('addBtn1');
+    const addBtn2 = document.getElementById('addBtn2');
+    const saveMl1 = document.getElementById('saveMl1');
+    const saveMl2 = document.getElementById('saveMl2');
+    const undoBtn = document.getElementById('undoBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const historyView = document.getElementById('historyView');
+    function todayKey(){ return new Date().toISOString().split('T')[0]; }
+    function loadData(){
+      let raw = localStorage.getItem('watertap');
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch(e){ data = {}; }
+      const key = todayKey();
+      if (!data[key] || typeof data[key] !== 'object') {
+        data[key] = { total: 0, history: [] };
+      } else {
+        if (typeof data[key].total !== 'number') data[key].total = Number(data[key].total) || 0;
+        if (!Array.isArray(data[key].history)) data[key].history = [];
+      }
+      return { data, key };
+    }
+    function saveData(data){ localStorage.setItem('watertap', JSON.stringify(data)); }
+    function readInt(v, fallback=180){
+      const n = parseInt(String(v || '').trim().replace(/\D/g,''), 10);
+      return Number.isFinite(n) && n>0 ? n : fallback;
+    }
+    function updateUI(){
+      const { data, key } = loadData();
+      const ml1 = readInt(localStorage.getItem('mlPerTap1') || localStorage.getItem('ml1') || mlInput1.value || 180, 180);
+      const ml2 = readInt(localStorage.getItem('mlPerTap2') || localStorage.getItem('ml2') || mlInput2.value || 180, 180);
+      totalEl.textContent = (data[key].total || 0) + ' ml';
+      perTap1El.textContent = ml1;
+      perTap2El.textContent = ml2;
+      mlInput1.value = ml1;
+      mlInput2.value = ml2;
+      addBtn1.textContent = 'Add ' + ml1 + ' ml';
+      addBtn2.textContent = 'Add ' + ml2 + ' ml';
+      const hist = (Array.isArray(data[key].history) ? data[key].history.slice() : []);
+      if (hist.length === 0){
+        historyView.textContent = 'Recent: —';
+        undoBtn.disabled = true;
+      } else {
+        const rev = hist.slice().reverse();
+        historyView.textContent = 'Recent (new → old): ' + rev.join(' ml, ') + ' ml';
+        undoBtn.disabled = false;
+      }
+    }
+    function addAmount(n){
+      const { data, key } = loadData();
+      const val = Number(n) || 0;
+      data[key].total = (Number(data[key].total) || 0) + val;
+      data[key].history = data[key].history || [];
+      data[key].history.push(val);
+      saveData(data);
+      updateUI();
+    }
+    addBtn1.addEventListener('click', () => {
+      const ml = readInt(localStorage.getItem('mlPerTap1') || mlInput1.value || 180, 180);
+      addAmount(ml);
+    });
+    addBtn2.addEventListener('click', () => {
+      const ml = readInt(localStorage.getItem('mlPerTap2') || mlInput2.value || 180, 180);
+      addAmount(ml);
+    });
+    saveMl1.addEventListener('click', () => {
+      const ml = readInt(mlInput1.value || 180, 180);
+      localStorage.setItem('mlPerTap1', String(ml));
+      updateUI();
+    });
+    saveMl2.addEventListener('click', () => {
+      const ml = readInt(mlInput2.value || 180, 180);
+      localStorage.setItem('mlPerTap2', String(ml));
+      updateUI();
+    });
+    undoBtn.addEventListener('click', () => {
+      const { data, key } = loadData();
+      if (!data[key].history || data[key].history.length === 0) return;
+      const last = data[key].history.pop();
+      data[key].total = Math.max(0, (Number(data[key].total) || 0) - Number(last));
+      saveData(data);
+      updateUI();
+    });
+    resetBtn.addEventListener('click', () => {
+      const { data, key } = loadData();
+      data[key].total = 0;
+      data[key].history = [];
+      saveData(data);
+      updateUI();
+    });
+    if (!localStorage.getItem('mlPerTap1')) localStorage.setItem('mlPerTap1', '180');
+    if (!localStorage.getItem('mlPerTap2')) localStorage.setItem('mlPerTap2', '180');
+    updateUI();
+  </script>
+</body>
+</html>
