@@ -1,4 +1,4 @@
-const CACHE_NAME = 'watertap-v1';
+const CACHE_NAME = 'watertap-v2';
 const ASSETS = [
   './',
   './index.html',
